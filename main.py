@@ -10,11 +10,12 @@ app = FastAPI()
 # CORS setup for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with frontend domain in production
+    allow_origins=["*"],  # or your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.post("/send-emails/")
 async def send_bulk_emails(
