@@ -1,33 +1,45 @@
-from fastapi import FastAPI, UploadFile, Form
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
-import os
-from email_utils import send_email
+import io
+import smtplib
+from email.message import EmailMessage
 
 app = FastAPI()
 
+# CORS setup for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace with frontend domain in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.post("/send-emails/")
 async def send_bulk_emails(
-    file: UploadFile,
+    file: UploadFile = File(...),
     sender_email: str = Form(...),
     app_password: str = Form(...),
     subject: str = Form(...),
     body: str = Form(...)
 ):
-    file_location = f"uploads/{file.filename}"
-    with open(file_location, "wb+") as f:
-        f.write(await file.read())
-
     try:
-        df = pd.read_excel(file_location)
-        email_list = df['Email'].dropna().tolist()
-    except:
-        return JSONResponse(status_code=400, content={"error": "Invalid Excel file"})
+        contents = await file.read()
+        df = pd.read_excel(io.BytesIO(contents))
+        email_list = df.iloc[:, 0].dropna().tolist()
 
-    results = []
-    for recipient in email_list:
-        status = send_email(sender_email, app_password, recipient, subject, body)
-        results.append({ "email": recipient, "status": "Sent" if status else "Failed" })
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(sender_email, app_password)
+            for recipient in email_list:
+                msg = EmailMessage()
+                msg["Subject"] = subject
+                msg["From"] = sender_email
+                msg["To"] = recipient
+                msg.set_content(body)
+                smtp.send_message(msg)
 
-    os.remove(file_location)
-    return { "results": results }
+        return {"message": "Emails sent successfully!"}
+
+    except Exception as e:
+        return {"error": str(e)}
