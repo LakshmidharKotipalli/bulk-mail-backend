@@ -17,13 +17,17 @@ app.add_middleware(
 )
 
 
+app = FastAPI()
+
 @app.post("/send-emails/")
 async def send_bulk_emails(
-    file: UploadFile = File(...),
-    sender_email: str = Form(...),
-    app_password: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    smtp_server: str = Form(...),
+    smtp_port: int = Form(...),
     subject: str = Form(...),
-    body: str = Form(...)
+    body: str = Form(...),
+    file: UploadFile = File(...)
 ):
     try:
         contents = await file.read()
