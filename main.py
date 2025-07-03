@@ -4,29 +4,40 @@ import pandas as pd
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from datetime import datetime
 
 app = FastAPI()
 
-# Enable CORS for frontend access
+# CORS Setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace "*" with your frontend domain for production
+    allow_origins=["*"],  # Replace with frontend URL for security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+email_logs = []
+
+# Auto-detect SMTP server and port
+def detect_smtp_config(email):
+    domain = email.split("@")[1]
+    if domain == "gmail.com":
+        return "smtp.gmail.com", 587
+    elif domain == "ganait.com":
+        return "mail.ganait.com", 587
+    else:
+        return f"smtp.{domain}", 587
+
 @app.post("/send-emails/")
 async def send_bulk_emails(
     email: str = Form(...),
     password: str = Form(...),
-    smtp_server: str = Form(...),
-    smtp_port: int = Form(...),
     subject: str = Form(...),
     body: str = Form(...),
     file: UploadFile = File(...)
 ):
-    # Load uploaded file into DataFrame
+    # Parse file
     if file.filename.endswith(".csv"):
         df = pd.read_csv(file.file)
     elif file.filename.endswith((".xls", ".xlsx")):
@@ -34,11 +45,12 @@ async def send_bulk_emails(
     elif file.filename.endswith(".json"):
         df = pd.read_json(file.file)
     else:
-        return {"error": "Unsupported file type"}
+        return {"error": "Unsupported file format"}
 
-    # Check required columns
     if "email" not in df.columns or "name" not in df.columns:
-        return {"error": "File must contain 'email' and 'name' columns"}
+        return {"error": "File must have 'email' and 'name' columns"}
+
+    smtp_server, smtp_port = detect_smtp_config(email)
 
     # Connect to SMTP
     try:
@@ -48,9 +60,9 @@ async def send_bulk_emails(
     except Exception as e:
         return {"error": f"SMTP login failed: {str(e)}"}
 
-    # Send emails
     success = 0
     failed = 0
+
     for _, row in df.iterrows():
         recipient = row["email"]
         name = row["name"]
@@ -66,8 +78,21 @@ async def send_bulk_emails(
         try:
             server.sendmail(email, recipient, msg.as_string())
             success += 1
-        except Exception:
+            status = "Sent"
+        except Exception as e:
             failed += 1
+            status = f"Failed: {e}"
+
+        email_logs.append({
+            "email": recipient,
+            "name": name,
+            "status": status,
+            "timestamp": datetime.utcnow().isoformat()
+        })
 
     server.quit()
-    return {"message": f"Emails sent: {success}, Failed: {failed}"}
+    return {"message": f"✅ Emails sent: {success}, ❌ Failed: {failed}"}
+
+@app.get("/logs")
+def get_logs():
+    return email_logs
